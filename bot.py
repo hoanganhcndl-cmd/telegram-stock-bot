@@ -42,6 +42,7 @@ async def search_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(result)
 
 def main():
+    import os
     TOKEN = os.getenv("BOT_TOKEN")
 
     app = ApplicationBuilder().token(TOKEN).build()
