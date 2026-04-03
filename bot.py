@@ -41,7 +41,7 @@ async def search_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(result, parse_mode="Markdown")
 
 def main():
-    app = ApplicationBuilder().token("TELEGRAM_BOT_TOKEN").build()
+    app = ApplicationBuilder().token("8746767158:AAFEI_XKB-vqjtcTnR0jWCqo1fQPgxvdA-c").build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_ticker))
