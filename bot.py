@@ -20,6 +20,7 @@ def home():
 def webhook():
     data = request.get_json(force=True)
     update = Update.de_json(data, tg_app.bot)
+    # Đẩy update vào PTB async
     asyncio.run_coroutine_threadsafe(tg_app.process_update(update), tg_app.loop)
     return "ok", 200
 
@@ -29,9 +30,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 tg_app.add_handler(CommandHandler("start", start))
 
-# Chạy PTB bot trong thread riêng
+# PTB bot chạy trong thread riêng
 def start_bot():
     asyncio.run(tg_app.initialize())
     asyncio.run(tg_app.start())
+    print("PTB bot started!")
 
-threading.Thread(target=start_bot).start()
+threading.Thread(target=start_bot, daemon=True).start()
