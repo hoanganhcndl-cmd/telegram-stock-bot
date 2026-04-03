@@ -2,35 +2,18 @@ import os
 import requests
 import csv
 from io import StringIO
-import threading
-
 from flask import Flask, request
+
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 
 BUY_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR6Xwxi0HpFNQWZiXg72eJfa2b1kaU3r2Be7B1I_hjj42k0NkAKJe0W3vM56KewYW52bkUIFLsvbn66/pub?gid=0&single=true&output=csv"
 SELL_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR6Xwxi0HpFNQWZiXg72eJfa2b1kaU3r2Be7B1I_hjj42k0NkAKJe0W3vM56KewYW52bkUIFLsvbn66/pub?gid=968456620&single=true&output=csv"
 
 MAX_ROWS = 20
 
-app_web = Flask(__name__)
-telegram_app = None     # app bot
-
-@app_web.route("/")
-def home():
-    return "Bot is running!", 200
-
-# ⭐ FIX QUAN TRỌNG: webhook route
-@app_web.route("/webhook", methods=["POST"])
-def webhook():
-    try:
-        data = request.get_json()
-        update = Update.de_json(data, telegram_app.bot)
-        telegram_app.process_update(update)
-    except Exception as e:
-        print("Webhook error:", e)
-        return "ERROR", 500
-    return "OK", 200
+app = Flask(__name__)
+telegram_app = None  # sẽ gán sau
 
 
 def get_sheet_data(url):
@@ -80,32 +63,40 @@ async def search_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(result)
 
 
-def run_bot():
+@app.post("/webhook")
+async def webhook():
+    try:
+        data = request.get_json()
+        update = Update.de_json(data, telegram_app.bot)
+        await telegram_app.process_update(update)
+        return "OK", 200
+    except Exception as e:
+        print("WEBHOOK ERROR:", e)
+        return "ERROR", 500
+
+
+def main():
     global telegram_app
 
     TOKEN = os.environ.get("BOT_TOKEN")
     if not TOKEN:
         raise ValueError("Thiếu BOT_TOKEN")
 
-    telegram_app = (
-        ApplicationBuilder()
-        .token(TOKEN)
-        .build()
-    )
+    telegram_app = Application.builder().token(TOKEN).build()
 
     telegram_app.add_handler(CommandHandler("start", start))
     telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_ticker))
 
-    # Webhook mode
+    # Set webhook URL
     url = "https://telegram-stock-bot-q9bi.onrender.com/webhook"
 
+    # Chạy Flask + webhook chung 1 port
     telegram_app.run_webhook(
         listen="0.0.0.0",
         port=int(os.environ.get("PORT", 10000)),
-        webhook_url=url,
+        webhook_url=url
     )
 
 
 if __name__ == "__main__":
-    threading.Thread(target=lambda: app_web.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))).start()
-    run_bot()
+    main()
