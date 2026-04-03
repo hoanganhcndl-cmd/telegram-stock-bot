@@ -73,7 +73,7 @@ async def search_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def run_bot():
-    TOKEN = os.getenv("BOT_TOKEN")
+    TOKEN = os.environ.get("BOT_TOKEN")
 
     if not TOKEN:
         raise ValueError("Thiếu BOT_TOKEN")
