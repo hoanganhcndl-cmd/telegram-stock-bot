@@ -3,7 +3,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
 # Connect tới Google Sheet PUBLIC
-SHEET_ID = "YOUR_SHEET_ID_HERE"
+SHEET_ID = "1gtik6y2TFILQ5B4R9FMrMzNviRcyGfX-GkjmvOd4xPs"
 
 gc = gspread.public()
 sheet_buy = gc.open_by_key(SHEET_ID).worksheet("Buy")
