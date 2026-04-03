@@ -4,9 +4,9 @@ import csv
 from io import StringIO
 import threading
 
-from flask import Flask
+from flask import Flask, request   # <-- THÊM request
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 BUY_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR6Xwxi0HpFNQWZiXg72eJfa2b1kaU3r2Be7B1I_hjj42k0NkAKJe0W3vM56KewYW52bkUIFLsvbn66/pub?gid=0&single=true&output=csv"
 SELL_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR6Xwxi0HpFNQWZiXg72eJfa2b1kaU3r2Be7B1I_hjj42k0NkAKJe0W3vM56KewYW52bkUIFLsvbn66/pub?gid=968456620&single=true&output=csv"
@@ -72,21 +72,46 @@ async def search_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(result)
 
 
-def run_bot():
-    TOKEN = os.environ.get("BOT_TOKEN")
 
-    if not TOKEN:
-        raise ValueError("Thiếu BOT_TOKEN")
+# -----------------------------------------------------------
+# 🚀 1) KHỞI TẠO BOT BẰNG WEBHOOK (THAY ApplicationBuilder)
+# -----------------------------------------------------------
 
-    app = ApplicationBuilder().token(TOKEN).build()
+TOKEN = os.environ.get("BOT_TOKEN")
+if not TOKEN:
+    raise ValueError("Thiếu BOT_TOKEN")
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_ticker))
+application = Application.builder().token(TOKEN).build()
 
-    app.run_polling()
+application.add_handler(CommandHandler("start", start))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_ticker))
 
 
+# -----------------------------------------------------------
+# 🚀 2) ROUTE WEBHOOK CHO TELEGRAM (BẮT BUỘC)
+# -----------------------------------------------------------
+@app_web.route("/webhook", methods=["POST"])
+def webhook():
+    data = request.get_json()
+    update = Update.de_json(data, application.bot)
+    application.update_queue.put_nowait(update)
+    return "OK", 200
+
+
+
+# -----------------------------------------------------------
+# 🚀 3) SET WEBHOOK + CHẠY FLASK
+# -----------------------------------------------------------
 if __name__ == "__main__":
-    # chạy web + bot song song
-    threading.Thread(target=run_web).start()
-    run_bot()
+
+    import asyncio
+
+    async def set_webhook():
+        url = "https://telegram-stock-bot-q9bi.onrender.com/webhook"
+        await application.bot.set_webhook(url)
+        print("Webhook set:", url)
+
+    asyncio.get_event_loop().run_until_complete(set_webhook())
+
+    # chạy web server
+    run_web()
