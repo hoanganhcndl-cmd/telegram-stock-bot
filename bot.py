@@ -6,7 +6,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 # Google Sheet
 SHEET_ID = "1gtik6y2TFILQ5B4R9FMrMzNviRcyGfX-GkjmvOd4xPs"
 
-gc = gspread.Client(None)
+gc = gspread.Client(auth=None)
 sheet_buy = gc.open_by_key(SHEET_ID).worksheet("Buy")
 sheet_sell = gc.open_by_key(SHEET_ID).worksheet("Sell")
 
