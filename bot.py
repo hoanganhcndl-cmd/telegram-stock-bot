@@ -5,40 +5,35 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 TOKEN = os.getenv("BOT_TOKEN")
 
-# Flask web server
+# Flask app (Render cần để giữ web alive)
 app = Flask(__name__)
 
-# Telegram Application
+# Telegram app
 tg_app = ApplicationBuilder().token(TOKEN).build()
 
-
-# ---------- TELEGRAM WEBHOOK ROUTE ----------
+# ===== ROUTE WEBHOOK =====
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    data = request.get_json(force=True)
+    data = request.get_json()
     update = Update.de_json(data, tg_app.bot)
     tg_app.update_queue.put(update)
-    return "ok", 200
+    return "ok"
 
-
-# ---------- BOT COMMAND ----------
+# ===== COMMAND =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Bot hoạt động OK!")
 
-
 tg_app.add_handler(CommandHandler("start", start))
 
-
-# ---------- RUN BOTH TELEGRAM + FLASK ----------
+# ===== CHẠY WEBHOOK =====
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 10000))
+    PORT = int(os.getenv("PORT", 10000))
 
-    # Khởi động Webhook Listener
+    # KHÔNG CHẠY Flask bằng app.run() ⛔
+    # Thay bằng gunicorn xử lý Flask
+
     tg_app.run_webhook(
         listen="0.0.0.0",
-        port=port,
-        webhook_url="https://telegram-stock-bot-q9bi.onrender.com/webhook"
+        port=PORT,
+        webhook_url="https://telegram-stock-bot-q9bi.onrender.com/webhook",
     )
-
-    # KHỞI ĐỘNG FLASK SERVER (QUAN TRỌNG)
-    app.run(host="0.0.0.0", port=port)
