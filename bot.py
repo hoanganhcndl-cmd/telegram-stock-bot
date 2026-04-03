@@ -1,44 +1,41 @@
 import os
-import requests
 import csv
+import requests
 from io import StringIO
-import threading
+from flask import Flask, request
+from telegram import Update, Bot
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
-from flask import Flask, request   # <-- THÊM request
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-
+# ====== GOOGLE SHEET ======
 BUY_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR6Xwxi0HpFNQWZiXg72eJfa2b1kaU3r2Be7B1I_hjj42k0NkAKJe0W3vM56KewYW52bkUIFLsvbn66/pub?gid=0&single=true&output=csv"
 SELL_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR6Xwxi0HpFNQWZiXg72eJfa2b1kaU3r2Be7B1I_hjj42k0NkAKJe0W3vM56KewYW52bkUIFLsvbn66/pub?gid=968456620&single=true&output=csv"
 
 MAX_ROWS = 20
 
-# 🌐 Fake web server để Render không báo lỗi port
-app_web = Flask(__name__)
+# ====== TELEGRAM ======
+TOKEN = "8746767158:AAFEI_XKB-vqjtcTnR0jWCqo1fQPgxvdA-c"
+bot = Bot(TOKEN)
 
-@app_web.route("/")
+# ====== FLASK SERVER ======
+app = Flask(__name__)
+
+@app.route("/")
 def home():
     return "Bot is running!"
 
-def run_web():
-    port = int(os.environ.get("PORT", 10000))
-    app_web.run(host="0.0.0.0", port=port)
-
-
+# ====== LOAD GOOGLE SHEET ======
 def get_sheet_data(url):
     try:
-        res = requests.get(url, timeout=10)
-        res.raise_for_status()
-        f = StringIO(res.text)
+        r = requests.get(url, timeout=8)
+        r.raise_for_status()
+        f = StringIO(r.text)
         return list(csv.DictReader(f))
-    except Exception as e:
-        print("Error loading sheet:", e)
+    except:
         return []
 
-
+# ====== BOT COMMANDS ======
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Nhập mã cổ phiếu để xem lịch sử giao dịch.")
-
 
 async def search_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ticker = update.message.text.upper().strip()
@@ -46,8 +43,8 @@ async def search_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     buy_data = get_sheet_data(BUY_URL)
     sell_data = get_sheet_data(SELL_URL)
 
-    buy_list = [row for row in buy_data if row.get("Ticker") == ticker][-MAX_ROWS:]
-    sell_list = [row for row in sell_data if row.get("Ticker") == ticker][-MAX_ROWS:]
+    buy_list = [r for r in buy_data if r.get("Ticker") == ticker][-MAX_ROWS:]
+    sell_list = [r for r in sell_data if r.get("Ticker") == ticker][-MAX_ROWS:]
 
     buy_list.reverse()
     sell_list.reverse()
@@ -56,62 +53,50 @@ async def search_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Không có giao dịch cho {ticker}.")
         return
 
-    result = f"📌 LỊCH SỬ GIAO DỊCH: {ticker}\n\n"
+    msg = f"📌 LỊCH SỬ GIAO DỊCH: {ticker}\n\n"
 
     if buy_list:
-        result += "🟢 MUA:\n"
-        for row in buy_list:
-            result += f"- {row.get('Date/Time')} | SL {row.get('Mua')} | Giá {row.get('Giá')}\n"
-        result += "\n"
+        msg += "🟢 MUA:\n"
+        for r in buy_list:
+            msg += f"- {r.get('Date/Time')} | SL {r.get('Mua')} | Giá {r.get('Giá')}\n"
+        msg += "\n"
 
     if sell_list:
-        result += "🔴 BÁN:\n"
-        for row in sell_list:
-            result += f"- {row.get('Date/Time')} | SL {row.get('Bán')} | Giá {row.get('Giá')}\n"
+        msg += "🔴 BÁN:\n"
+        for r in sell_list:
+            msg += f"- {r.get('Date/Time')} | SL {r.get('Bán')} | Giá {r.get('Giá')}\n"
 
-    await update.message.reply_text(result)
+    await update.message.reply_text(msg)
 
-
-
-# -----------------------------------------------------------
-# 🚀 1) KHỞI TẠO BOT BẰNG WEBHOOK (THAY ApplicationBuilder)
-# -----------------------------------------------------------
-
-TOKEN = os.environ.get("BOT_TOKEN")
-if not TOKEN:
-    raise ValueError("Thiếu BOT_TOKEN")
-
-application = Application.builder().token(TOKEN).build()
-
-application.add_handler(CommandHandler("start", start))
-application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_ticker))
-
-
-# -----------------------------------------------------------
-# 🚀 2) ROUTE WEBHOOK CHO TELEGRAM (BẮT BUỘC)
-# -----------------------------------------------------------
-@app_web.route("/webhook", methods=["POST"])
+# ====== WEBHOOK RECEIVER ======
+@app.post("/webhook")
 def webhook():
-    data = request.get_json()
-    update = Update.de_json(data, application.bot)
-    application.update_queue.put_nowait(update)
+    data = request.get_json(force=True)
+    update = Update.de_json(data, bot)
+    app_telegram.bot.process_update(update)
     return "OK", 200
 
 
+# ====== START BOT + WEBHOOK ======
+def main():
+    global app_telegram
 
-# -----------------------------------------------------------
-# 🚀 3) SET WEBHOOK + CHẠY FLASK
-# -----------------------------------------------------------
+    app_telegram = ApplicationBuilder().token(TOKEN).build()
+
+    app_telegram.add_handler(CommandHandler("start", start))
+    app_telegram.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_ticker))
+
+    # URL webhook của Render
+    WEBHOOK_URL = "https://telegram-stock-bot-q9bi.onrender.com/webhook"
+
+    # Set webhook
+    bot.delete_webhook()
+    bot.set_webhook(url=WEBHOOK_URL)
+
+    # Flask chạy trên Render
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
+
+
 if __name__ == "__main__":
-
-    import asyncio
-
-    async def set_webhook():
-        url = "https://telegram-stock-bot-q9bi.onrender.com/webhook"
-        await application.bot.set_webhook(url)
-        print("Webhook set:", url)
-
-    asyncio.get_event_loop().run_until_complete(set_webhook())
-
-    # chạy web server
-    run_web()
+    main()
