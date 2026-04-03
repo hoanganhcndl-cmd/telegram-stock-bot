@@ -1,41 +1,52 @@
 import os
-import csv
 import requests
+import csv
 from io import StringIO
+import threading
+
 from flask import Flask, request
-from telegram import Update, Bot
+from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
-# ====== GOOGLE SHEET ======
 BUY_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR6Xwxi0HpFNQWZiXg72eJfa2b1kaU3r2Be7B1I_hjj42k0NkAKJe0W3vM56KewYW52bkUIFLsvbn66/pub?gid=0&single=true&output=csv"
 SELL_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR6Xwxi0HpFNQWZiXg72eJfa2b1kaU3r2Be7B1I_hjj42k0NkAKJe0W3vM56KewYW52bkUIFLsvbn66/pub?gid=968456620&single=true&output=csv"
 
 MAX_ROWS = 20
 
-# ====== TELEGRAM ======
-TOKEN = "8746767158:AAFEI_XKB-vqjtcTnR0jWCqo1fQPgxvdA-c"
-bot = Bot(TOKEN)
+app_web = Flask(__name__)
+telegram_app = None     # app bot
 
-# ====== FLASK SERVER ======
-app = Flask(__name__)
-
-@app.route("/")
+@app_web.route("/")
 def home():
-    return "Bot is running!"
+    return "Bot is running!", 200
 
-# ====== LOAD GOOGLE SHEET ======
+# ⭐ FIX QUAN TRỌNG: webhook route
+@app_web.route("/webhook", methods=["POST"])
+def webhook():
+    try:
+        data = request.get_json()
+        update = Update.de_json(data, telegram_app.bot)
+        telegram_app.process_update(update)
+    except Exception as e:
+        print("Webhook error:", e)
+        return "ERROR", 500
+    return "OK", 200
+
+
 def get_sheet_data(url):
     try:
-        r = requests.get(url, timeout=8)
-        r.raise_for_status()
-        f = StringIO(r.text)
+        res = requests.get(url, timeout=10)
+        res.raise_for_status()
+        f = StringIO(res.text)
         return list(csv.DictReader(f))
-    except:
+    except Exception as e:
+        print("Error loading sheet:", e)
         return []
 
-# ====== BOT COMMANDS ======
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Nhập mã cổ phiếu để xem lịch sử giao dịch.")
+
 
 async def search_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ticker = update.message.text.upper().strip()
@@ -43,8 +54,8 @@ async def search_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     buy_data = get_sheet_data(BUY_URL)
     sell_data = get_sheet_data(SELL_URL)
 
-    buy_list = [r for r in buy_data if r.get("Ticker") == ticker][-MAX_ROWS:]
-    sell_list = [r for r in sell_data if r.get("Ticker") == ticker][-MAX_ROWS:]
+    buy_list = [row for row in buy_data if row.get("Ticker") == ticker][-MAX_ROWS:]
+    sell_list = [row for row in sell_data if row.get("Ticker") == ticker][-MAX_ROWS:]
 
     buy_list.reverse()
     sell_list.reverse()
@@ -53,50 +64,48 @@ async def search_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Không có giao dịch cho {ticker}.")
         return
 
-    msg = f"📌 LỊCH SỬ GIAO DỊCH: {ticker}\n\n"
+    result = f"📌 LỊCH SỬ GIAO DỊCH: {ticker}\n\n"
 
     if buy_list:
-        msg += "🟢 MUA:\n"
-        for r in buy_list:
-            msg += f"- {r.get('Date/Time')} | SL {r.get('Mua')} | Giá {r.get('Giá')}\n"
-        msg += "\n"
+        result += "🟢 MUA:\n"
+        for row in buy_list:
+            result += f"- {row.get('Date/Time')} | SL {row.get('Mua')} | Giá {row.get('Giá')}\n"
+        result += "\n"
 
     if sell_list:
-        msg += "🔴 BÁN:\n"
-        for r in sell_list:
-            msg += f"- {r.get('Date/Time')} | SL {r.get('Bán')} | Giá {r.get('Giá')}\n"
+        result += "🔴 BÁN:\n"
+        for row in sell_list:
+            result += f"- {row.get('Date/Time')} | SL {row.get('Bán')} | Giá {row.get('Giá')}\n"
 
-    await update.message.reply_text(msg)
-
-# ====== WEBHOOK RECEIVER ======
-@app.post("/webhook")
-def webhook():
-    data = request.get_json(force=True)
-    update = Update.de_json(data, bot)
-    app_telegram.bot.process_update(update)
-    return "OK", 200
+    await update.message.reply_text(result)
 
 
-# ====== START BOT + WEBHOOK ======
-def main():
-    global app_telegram
+def run_bot():
+    global telegram_app
 
-    app_telegram = ApplicationBuilder().token(TOKEN).build()
+    TOKEN = os.environ.get("BOT_TOKEN")
+    if not TOKEN:
+        raise ValueError("Thiếu BOT_TOKEN")
 
-    app_telegram.add_handler(CommandHandler("start", start))
-    app_telegram.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_ticker))
+    telegram_app = (
+        ApplicationBuilder()
+        .token(TOKEN)
+        .build()
+    )
 
-    # URL webhook của Render
-    WEBHOOK_URL = "https://telegram-stock-bot-q9bi.onrender.com/webhook"
+    telegram_app.add_handler(CommandHandler("start", start))
+    telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_ticker))
 
-    # Set webhook
-    bot.delete_webhook()
-    bot.set_webhook(url=WEBHOOK_URL)
+    # Webhook mode
+    url = "https://telegram-stock-bot-q9bi.onrender.com/webhook"
 
-    # Flask chạy trên Render
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    telegram_app.run_webhook(
+        listen="0.0.0.0",
+        port=int(os.environ.get("PORT", 10000)),
+        webhook_url=url,
+    )
 
 
 if __name__ == "__main__":
-    main()
+    threading.Thread(target=lambda: app_web.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))).start()
+    run_bot()
