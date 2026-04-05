@@ -36,7 +36,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     def find_ticker(rows, ticker):
         results = []
-        if not rows: return []
+        if not rows:
+            return []
+        
+        # Duyệt ngược từ dưới lên trên (ưu tiên 2026)
         for r in reversed(rows):
             if len(r) >= 4:
                 row_ticker = str(r[0]).strip().upper()
@@ -49,7 +52,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         date = r[1]
                         price = r[3]
                         results.append(f"🔹 {row_ticker} | {date} | Giá: {price}")
-                if len(results) >= 10:
+            if len(results) >= 10:
                 break
                 
         return results
