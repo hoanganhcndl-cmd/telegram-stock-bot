@@ -1,110 +1,66 @@
-import os
-import csv
-import httpx
-import asyncio
-import threading
-import codecs
-from io import StringIO, BytesIO
+import os, csv, httpx, asyncio, threading, codecs
+from io import StringIO
 from flask import Flask
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
-# ===========================
-# 1. CONFIG
-# ===========================
+# --- CONFIG ---
 BUY_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR6Xwxi0HpFNQWZiXg72eJfa2b1kaU3r2Be7B1I_hjj42k0NkAKJe0W3vM56KewYW52bkUIFLsvbn66/pub?gid=0&single=true&output=csv"
 SELL_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR6Xwxi0HpFNQWZiXg72eJfa2b1kaU3r2Be7B1I_hjj42k0NkAKJe0W3vM56KewYW52bkUIFLsvbn66/pub?gid=968456620&single=true&output=csv"
-MAX_ROWS = 10
 
-# ===========================
-# 2. HÀM TẢI DỮ LIỆU SẠCH
-# ===========================
-
-async def fetch_csv_data(url):
+async def fetch_csv(url):
     try:
         async with httpx.AsyncClient() as client:
             res = await client.get(url, timeout=15.0)
             res.raise_for_status()
-            
-            # Xử lý ký tự lạ (BOM) ở đầu file CSV từ Google
             content = res.content
             if content.startswith(codecs.BOM_UTF8):
                 content = content[len(codecs.BOM_UTF8):]
-            
-            decoded_content = content.decode('utf-8')
-            f = StringIO(decoded_content)
-            reader = csv.DictReader(f)
-            # Làm sạch tiêu đề cột
-            reader.fieldnames = [name.strip() for name in reader.fieldnames]
-            return list(reader)
-    except Exception as e:
-        print(f"Lỗi: {e}")
-        return []
-
-# ===========================
-# 3. HANDLERS
-# ===========================
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Chào Alex! Nhập mã (VD: SSI, FPT) để xem lệnh mua/bán.")
+            f = StringIO(content.decode('utf-8'))
+            return list(csv.reader(f)) # Dùng reader thường để lấy theo chỉ số cột (0, 1, 2)
+    except: return []
 
 async def search_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Chuẩn hóa mã người dùng nhập: Xóa dấu cách, in hoa
     user_input = str(update.message.text).strip().upper()
-    waiting_msg = await update.message.reply_text(f"🔍 Đang tìm khớp 100% mã: {user_input}...")
+    wait = await update.message.reply_text(f"🔍 Đang tìm mã: {user_input}...")
 
-    buy_data = await fetch_csv_data(BUY_URL)
-    sell_data = await fetch_csv_data(SELL_URL)
+    buy_raw = await fetch_csv(BUY_URL)
+    sell_raw = await fetch_csv(SELL_URL)
 
-    def get_history(data, symbol):
-        history = []
-        for r in data:
-            # Làm sạch mã trong Sheets trước khi so sánh
-            # Tìm cột có tên 'Ticker', nếu không thấy thì thử tìm cột đầu tiên
-            raw_ticker = str(r.get("Ticker") or next(iter(r.values()), "")).strip().upper()
-            
-            # SO KHỚP TUYỆT ĐỐI
-            if raw_ticker == symbol:
-                # Lấy dữ liệu theo tên cột trong hình của bạn
-                date_val = str(r.get("Date/Time", "N/A")).strip()
-                price_val = str(r.get("Giá", "0")).strip()
-                history.append(f"🔹 {raw_ticker} | {date_val} | Giá: {price_val}")
-        
-        return history[-MAX_ROWS:]
+    def filter_data(rows, symbol):
+        results = []
+        if not rows or len(rows) < 2: return []
+        # Bỏ qua hàng tiêu đề (rows[0]), duyệt từ hàng 1
+        for r in rows[1:]:
+            if len(r) < 3: continue
+            # r[0] là cột Ticker, r[1] là Date/Time, r[2] là Giá
+            db_ticker = str(r[0]).strip().upper()
+            if db_ticker == symbol:
+                results.append(f"🔹 {db_ticker} | {r[1]} | Giá: {r[2]}")
+        return results[-10:]
 
-    buy_list = get_history(buy_data, user_input)
-    sell_list = get_history(sell_data, user_input)
+    buy_list = filter_data(buy_raw, user_input)
+    sell_list = filter_data(sell_raw, user_input)
 
     if not buy_list and not sell_list:
-        # Nếu vẫn không thấy, gửi thêm thông báo gợi ý
-        await waiting_msg.edit_text(f"❌ Không thấy mã: {user_input}\n\nHãy kiểm tra lại cột 'Ticker' trong Sheets xem có đúng chữ '{user_input}' không nhé!")
+        # Nếu vẫn không thấy, liệt kê 3 mã đầu tiên bot thấy trong sheet để kiểm tra
+        sample = [str(r[0]).strip() for r in buy_raw[1:4]] if len(buy_raw) > 1 else ["Trống"]
+        await wait.edit_text(f"❌ Không khớp mã: {user_input}\nMã trong Sheets bot thấy là: {', '.join(sample)}")
         return
 
-    msg = f"📌 **KẾT QUẢ: {user_input}**\n\n"
-    if buy_list:
-        msg += "🟩 **MUA:**\n" + "\n".join(buy_list)
-    if sell_list:
-        msg += "\n\n🟥 **BÁN:**\n" + "\n".join(sell_list)
-    
-    await waiting_msg.edit_text(msg, parse_mode="Markdown")
+    msg = f"📌 **KẾT QUẢ: {user_input}**\n\n🟩 **MUA:**\n" + "\n".join(buy_list) + "\n\n🟥 **BÁN:**\n" + "\n".join(sell_list)
+    await wait.edit_text(msg, parse_mode="Markdown")
 
-# ===========================
-# 4. SERVER & CHẠY
-# ===========================
+# --- PHẦN SERVER GIỮ NGUYÊN ---
 server = Flask(__name__)
 @server.route("/")
 def home(): return "OK"
 
 def main():
-    TOKEN = os.getenv("BOT_TOKEN")
-    if not TOKEN: return
-    
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
+    token = os.getenv("BOT_TOKEN")
+    app = ApplicationBuilder().token(token).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_ticker))
-
     threading.Thread(target=lambda: server.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000))), daemon=True).start()
     app.run_polling(drop_pending_updates=True)
 
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__": main()
