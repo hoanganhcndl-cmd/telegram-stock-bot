@@ -5,8 +5,7 @@ from io import StringIO
 from flask import Flask
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
-import threading
-import time
+import asyncio
 
 # ===========================
 # CONFIG
@@ -14,35 +13,20 @@ import time
 BUY_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR6Xwxi0HpFNQWZiXg72eJfa2b1kaU3r2Be7B1I_hjj42k0NkAKJe0W3vM56KewYW52bkUIFLsvbn66/pub?gid=0&single=true&output=csv"
 SELL_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR6Xwxi0HpFNQWZiXg72eJfa2b1kaU3r2Be7B1I_hjj42k0NkAKJe0W3vM56KewYW52bkUIFLsvbn66/pub?gid=968456620&single=true&output=csv"
 MAX_ROWS = 20
-CACHE_TIME = 300  # 5 phút
 
 # ===========================
-# GLOBAL CACHE
-# ===========================
-buy_data_cache = []
-sell_data_cache = []
-last_update = 0
-
-# ===========================
-# READ CSV
+# LOAD CSV ON START
 # ===========================
 def fetch_csv(url):
     try:
         res = requests.get(url, timeout=10)
         res.raise_for_status()
-        f = StringIO(res.text)
-        return list(csv.DictReader(f))
+        return list(csv.DictReader(StringIO(res.text)))
     except:
         return []
 
-def update_cache():
-    global buy_data_cache, sell_data_cache, last_update
-    while True:
-        buy_data_cache = fetch_csv(BUY_URL)
-        sell_data_cache = fetch_csv(SELL_URL)
-        last_update = time.time()
-        print("🟢 CSV cache updated")
-        time.sleep(CACHE_TIME)
+buy_data = fetch_csv(BUY_URL)
+sell_data = fetch_csv(SELL_URL)
 
 # ===========================
 # TELEGRAM HANDLERS
@@ -51,10 +35,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Nhập mã chứng khoán để xem giao dịch (FPT, SSI, VIC...)")
 
 async def search_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    print("Received message:", update.message.text)  # Debug
     ticker = update.message.text.upper().strip()
-    buy_list = [r for r in buy_data_cache if r.get("Ticker") == ticker][-MAX_ROWS:]
-    sell_list = [r for r in sell_data_cache if r.get("Ticker") == ticker][-MAX_ROWS:]
+    buy_list = [r for r in buy_data if r.get("Ticker") == ticker][-MAX_ROWS:]
+    sell_list = [r for r in sell_data if r.get("Ticker") == ticker][-MAX_ROWS:]
     buy_list.reverse()
     sell_list.reverse()
 
@@ -67,22 +50,7 @@ async def search_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg += "🟩 BUY:\n" + "\n".join(f"- {r['Time']} | Giá {r['Price']} | KL {r['Volume']}" for r in buy_list)
     if sell_list:
         msg += "\n🟥 SELL:\n" + "\n".join(f"- {r['Time']} | Giá {r['Price']} | KL {r['Volume']}" for r in sell_list)
-    
     await update.message.reply_text(msg)
-
-# ===========================
-# RUN BOT
-# ===========================
-def run_bot():
-    TOKEN = os.getenv("BOT_TOKEN")
-    if not TOKEN:
-        print("Thiếu BOT_TOKEN")
-        return
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_ticker))
-    print("🚀 Telegram Bot is running...")
-    app.run_polling()  # blocking, chạy ở main thread
 
 # ===========================
 # FLASK WEB
@@ -94,14 +62,30 @@ def home():
     return "Bot is running on Render!"
 
 # ===========================
-# MAIN
+# RUN TELEGRAM BOT ASYNC
+# ===========================
+async def main():
+    TOKEN = os.getenv("BOT_TOKEN")
+    if not TOKEN:
+        print("Thiếu BOT_TOKEN")
+        return
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_ticker))
+    print("🚀 Telegram Bot is running...")
+    # chạy async
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+    # giữ process live
+    await asyncio.Event().wait()
+
+# ===========================
+# ENTRY POINT
 # ===========================
 if __name__ == "__main__":
-    # Start CSV cache
-    threading.Thread(target=update_cache, daemon=True).start()
-
-    # Start Flask server in a separate thread
+    import threading
+    # chạy Flask server trong thread riêng
     threading.Thread(target=lambda: server.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000))), daemon=True).start()
-
-    # Run Telegram bot in main thread
-    run_bot()
+    # chạy bot trong async main thread
+    asyncio.run(main())
