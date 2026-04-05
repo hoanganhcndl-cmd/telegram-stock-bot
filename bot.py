@@ -3,7 +3,8 @@ import csv
 import httpx
 import asyncio
 import threading
-from io import StringIO
+import codecs
+from io import StringIO, BytesIO
 from flask import Flask
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
@@ -16,7 +17,7 @@ SELL_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR6Xwxi0HpFNQWZiXg72
 MAX_ROWS = 10
 
 # ===========================
-# 2. XỬ LÝ DỮ LIỆU
+# 2. HÀM TẢI DỮ LIỆU SẠCH
 # ===========================
 
 async def fetch_csv_data(url):
@@ -24,16 +25,33 @@ async def fetch_csv_data(url):
         async with httpx.AsyncClient() as client:
             res = await client.get(url, timeout=15.0)
             res.raise_for_status()
-            return list(csv.DictReader(StringIO(res.text)))
-    except:
+            
+            # Xử lý ký tự lạ (BOM) ở đầu file CSV từ Google
+            content = res.content
+            if content.startswith(codecs.BOM_UTF8):
+                content = content[len(codecs.BOM_UTF8):]
+            
+            decoded_content = content.decode('utf-8')
+            f = StringIO(decoded_content)
+            reader = csv.DictReader(f)
+            # Làm sạch tiêu đề cột
+            reader.fieldnames = [name.strip() for name in reader.fieldnames]
+            return list(reader)
+    except Exception as e:
+        print(f"Lỗi: {e}")
         return []
 
+# ===========================
+# 3. HANDLERS
+# ===========================
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Bot đã sẵn sàng! Nhập mã (VD: SSI, FPT) để xem lệnh mua/bán.")
+    await update.message.reply_text("👋 Chào Alex! Nhập mã (VD: SSI, FPT) để xem lệnh mua/bán.")
 
 async def search_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_input = update.message.text.upper().strip()
-    waiting_msg = await update.message.reply_text(f"🔍 Đang lọc đúng mã {user_input}...")
+    # Chuẩn hóa mã người dùng nhập: Xóa dấu cách, in hoa
+    user_input = str(update.message.text).strip().upper()
+    waiting_msg = await update.message.reply_text(f"🔍 Đang tìm khớp 100% mã: {user_input}...")
 
     buy_data = await fetch_csv_data(BUY_URL)
     sell_data = await fetch_csv_data(SELL_URL)
@@ -41,15 +59,16 @@ async def search_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     def get_history(data, symbol):
         history = []
         for r in data:
-            # Lấy mã gốc từ Sheets (Ví dụ: "SSI", "SSI_NN")
-            raw_ticker = str(r.get("Ticker", "")).upper().strip()
+            # Làm sạch mã trong Sheets trước khi so sánh
+            # Tìm cột có tên 'Ticker', nếu không thấy thì thử tìm cột đầu tiên
+            raw_ticker = str(r.get("Ticker") or next(iter(r.values()), "")).strip().upper()
             
-            # SO KHỚP TUYỆT ĐỐI: Chỉ lấy nếu bằng đúng mã người dùng gõ
-            # Nếu trong sheet là "SSI_NN" và user gõ "SSI" -> False (Bỏ qua)
+            # SO KHỚP TUYỆT ĐỐI
             if raw_ticker == symbol:
-                time_val = r.get("Date/Time", "N/A")
-                price_val = r.get("Giá", "0")
-                history.append(f"🔹 {raw_ticker} | {time_val} | Giá: {price_val}")
+                # Lấy dữ liệu theo tên cột trong hình của bạn
+                date_val = str(r.get("Date/Time", "N/A")).strip()
+                price_val = str(r.get("Giá", "0")).strip()
+                history.append(f"🔹 {raw_ticker} | {date_val} | Giá: {price_val}")
         
         return history[-MAX_ROWS:]
 
@@ -57,7 +76,8 @@ async def search_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sell_list = get_history(sell_data, user_input)
 
     if not buy_list and not sell_list:
-        await waiting_msg.edit_text(f"❌ Không thấy dữ liệu khớp chính xác với mã: {user_input}")
+        # Nếu vẫn không thấy, gửi thêm thông báo gợi ý
+        await waiting_msg.edit_text(f"❌ Không thấy mã: {user_input}\n\nHãy kiểm tra lại cột 'Ticker' trong Sheets xem có đúng chữ '{user_input}' không nhé!")
         return
 
     msg = f"📌 **KẾT QUẢ: {user_input}**\n\n"
@@ -69,7 +89,7 @@ async def search_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await waiting_msg.edit_text(msg, parse_mode="Markdown")
 
 # ===========================
-# 3. RUN SERVER
+# 4. SERVER & CHẠY
 # ===========================
 server = Flask(__name__)
 @server.route("/")
@@ -84,7 +104,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_ticker))
 
     threading.Thread(target=lambda: server.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000))), daemon=True).start()
-    app.run_polling(close_loop=False)
+    app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
