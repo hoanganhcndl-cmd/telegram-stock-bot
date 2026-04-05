@@ -1,4 +1,4 @@
-import os, csv, httpx, asyncio, threading, codecs, logging
+import os, csv, httpx, asyncio, threading, logging, time
 from io import StringIO
 from flask import Flask
 from telegram import Update
@@ -12,28 +12,24 @@ SELL_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR6Xwxi0HpFNQWZiXg72
 
 async def fetch_csv(url):
     try:
+        # Thêm tham số thời gian để ép Google Sheets không dùng cache cũ
+        cache_buster = f"&t={int(time.time())}"
         async with httpx.AsyncClient() as client:
-            res = await client.get(url, timeout=30.0, follow_redirects=True)
+            res = await client.get(url + cache_buster, timeout=30.0, follow_redirects=True)
             if res.status_code != 200: return []
-            
-            # Dùng utf-8-sig để XÓA KÝ TỰ BOM (Lỗi làm bot không thấy mã)
             content = res.content.decode('utf-8-sig')
             f = StringIO(content)
-            
-            # File của Alex dùng dấu phẩy (,)
-            reader = csv.reader(f, delimiter=',')
-            return list(reader)
+            return list(csv.reader(f, delimiter=','))
     except Exception as e:
-        logging.error(f"Lỗi: {e}")
+        logging.error(f"Lỗi tải file: {e}")
         return []
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text: return
     
-    # Lấy mã, xóa cách, viết hoa. Đổi '-' thành '_' cho khớp SSI_NN
-    user_input = str(update.message.text).strip().upper().replace('-', '_')
-    
-    wait_msg = await update.message.reply_text(f"🔍 Đang quét dữ liệu cho mã: {user_input}...")
+    # 1. Lấy mã Alex gõ (VD: HPG)
+    user_input = str(update.message.text).strip().upper()
+    wait_msg = await update.message.reply_text(f"🔍 Đang rà soát dữ liệu: {user_input}...")
 
     buy_data = await fetch_csv(BUY_URL)
     sell_data = await fetch_csv(SELL_URL)
@@ -43,44 +39,40 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not rows: return []
         for r in rows:
             if len(r) >= 5:
-                # 1. Lấy mã từ cột đầu tiên, xóa khoảng trắng và viết hoa
                 row_ticker = str(r[0]).strip().upper()
                 
-                # 2. KIỂM TRA ĐIỀU KIỆN: 
-                # Phải bằng tuyệt đối mã bạn nhập (VD: HPG == HPG)
-                # Và không được chứa các ký tự phụ như _NN
-                if ticker == row_ticker and "_NN" not in row_ticker:
-                    date = r[1]
-                    price = r[4]
-                    results.append(f"🔹 {row_ticker} | {date} | Giá: {price}")
+                # LỌC SIÊU SẠCH: 
+                # - Khớp 100% (gõ HPG chỉ ra HPG)
+                # - Bỏ qua NN, TD, và các mã phái sinh C...
+                if row_ticker == ticker:
+                    if "_NN" not in row_ticker and "TD" not in row_ticker and not row_ticker.startswith("C"):
+                        date = r[1]
+                        price = r[4]
+                        results.append(f"🔹 {row_ticker} | {date} | Giá: {price}")
         return results[-10:]
 
     buy_list = find_ticker(buy_data, user_input)
     sell_list = find_ticker(sell_data, user_input)
 
     if not buy_list and not sell_list:
-        # Nếu không thấy, liệt kê 5 mã đầu tiên bot ĐANG THỰC SỰ ĐỌC ĐƯỢC
-        sample_codes = [str(r[0]).strip() for r in buy_data[1:6] if len(r) > 0]
-        msg = f"❌ Không tìm thấy dữ liệu cho mã: {user_input}\n\n"
-        msg += f"📍 Danh sách mã bot thấy trong file: {', '.join(sample_codes)}"
-        await wait_msg.edit_text(msg)
+        await wait_msg.edit_text(f"❌ Không tìm thấy dữ liệu khớp chính xác cho mã: {user_input}")
         return
 
     response = f"📌 **KẾT QUẢ: {user_input}**\n\n"
-    if buy_list:
-        response += "🟩 **LỆNH MUA:**\n" + "\n".join(buy_list)
-    if sell_list:
-        response += "\n\n🟥 **LỆNH BÁN:**\n" + "\n".join(sell_list)
+    if buy_list: response += "🟩 **LỆNH MUA:**\n" + "\n".join(buy_list)
+    if sell_list: response += "\n\n🟥 **LỆNH BÁN:**\n" + "\n".join(sell_list)
     
     await wait_msg.edit_text(response, parse_mode="Markdown")
 
-# --- PHẦN SERVER RENDER ---
+# --- SERVER FLASK ---
 app_flask = Flask(__name__)
 @app_flask.route('/')
-def index(): return "Bot is running"
+def index(): 
+    return "Bot status: Active"
 
 def run_flask():
-    app_flask.run(host='0.0.0.0', port=10000)
+    port = int(os.environ.get("PORT", 10000))
+    app_flask.run(host='0.0.0.0', port=port)
 
 def main():
     token = os.getenv("BOT_TOKEN")
