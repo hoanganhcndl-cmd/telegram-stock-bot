@@ -96,10 +96,7 @@ def home():
 # MAIN
 # ===========================
 if __name__ == "__main__":
-    # Bắt đầu cache CSV
     threading.Thread(target=update_cache, daemon=True).start()
-    # Chạy bot Telegram song song
     threading.Thread(target=run_bot, daemon=True).start()
-    # Chạy Flask
     port = int(os.environ.get("PORT", 10000))
     server.run(host="0.0.0.0", port=port)
