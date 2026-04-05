@@ -38,7 +38,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         results = []
         if not rows: return []
         for r in rows:
-            if len(r) >= 5:
+            if len(r) >= 4:
                 row_ticker = str(r[0]).strip().upper()
                 
                 # LỌC SIÊU SẠCH: 
@@ -47,7 +47,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if row_ticker == ticker:
                     if "_NN" not in row_ticker and "TD" not in row_ticker and not row_ticker.startswith("C"):
                         date = r[1]
-                        price = r[4]
+                        price = r[3]
                         results.append(f"🔹 {row_ticker} | {date} | Giá: {price}")
         return results[::-1][:10]
 
