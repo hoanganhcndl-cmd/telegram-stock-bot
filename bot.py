@@ -49,7 +49,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         date = r[1]
                         price = r[4]
                         results.append(f"🔹 {row_ticker} | {date} | Giá: {price}")
-        return results[-10:]
+        return results[::-1][:10]
 
     buy_list = find_ticker(buy_data, user_input)
     sell_list = find_ticker(sell_data, user_input)
