@@ -43,14 +43,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not rows: return []
         for r in rows:
             if len(r) >= 5:
-                # Xóa mọi khoảng trắng ẩn trong tên mã ở file
+                # 1. Lấy mã từ cột đầu tiên, xóa khoảng trắng và viết hoa
                 row_ticker = str(r[0]).strip().upper()
-
-                if "_NN" in row_ticker:
-                    continue
-                    
-                # Tìm kiếm (Ví dụ gõ SSI vẫn ra SSI_NN)
-                if ticker in row_ticker:
+                
+                # 2. KIỂM TRA ĐIỀU KIỆN: 
+                # Phải bằng tuyệt đối mã bạn nhập (VD: HPG == HPG)
+                # Và không được chứa các ký tự phụ như _NN
+                if ticker == row_ticker and "_NN" not in row_ticker:
                     date = r[1]
                     price = r[4]
                     results.append(f"🔹 {row_ticker} | {date} | Giá: {price}")
