@@ -51,6 +51,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Nhập mã chứng khoán để xem giao dịch (FPT, SSI, VIC...)")
 
 async def search_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("Received message:", update.message.text)  # Debug
     ticker = update.message.text.upper().strip()
     buy_list = [r for r in buy_data_cache if r.get("Ticker") == ticker][-MAX_ROWS:]
     sell_list = [r for r in sell_data_cache if r.get("Ticker") == ticker][-MAX_ROWS:]
@@ -81,7 +82,7 @@ def run_bot():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_ticker))
     print("🚀 Telegram Bot is running...")
-    app.run_polling()  # blocking
+    app.run_polling()  # blocking, chạy ở main thread
 
 # ===========================
 # FLASK WEB
@@ -96,7 +97,11 @@ def home():
 # MAIN
 # ===========================
 if __name__ == "__main__":
+    # Start CSV cache
     threading.Thread(target=update_cache, daemon=True).start()
-    threading.Thread(target=run_bot, daemon=True).start()
-    port = int(os.environ.get("PORT", 10000))
-    server.run(host="0.0.0.0", port=port)
+
+    # Start Flask server in a separate thread
+    threading.Thread(target=lambda: server.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000))), daemon=True).start()
+
+    # Run Telegram bot in main thread
+    run_bot()
