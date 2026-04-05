@@ -45,7 +45,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if len(r) >= 5:
                 # Xóa mọi khoảng trắng ẩn trong tên mã ở file
                 row_ticker = str(r[0]).strip().upper()
-                
+
+                if "_NN" in row_ticker:
+                    continue
+                    
                 # Tìm kiếm (Ví dụ gõ SSI vẫn ra SSI_NN)
                 if ticker in row_ticker:
                     date = r[1]
