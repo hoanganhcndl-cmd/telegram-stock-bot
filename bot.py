@@ -16,15 +16,19 @@ async def fetch_csv(url):
             content = res.content
             if content.startswith(codecs.BOM_UTF8):
                 content = content[len(codecs.BOM_UTF8):]
-            f = StringIO(content.decode('utf-8'))
-            # Dùng reader thường để lấy dữ liệu theo vị trí cột 0, 1, 2, 3...
-            return list(csv.reader(f)) 
+            text = content.decode('utf-8')
+            
+            # TỰ DÒ DẤU PHÂN CÁCH (Dấu phẩy hoặc Dấu chấm phẩy)
+            dialect = csv.Sniffer().sniff(text[:2000]) if ',' in text[:100] or ';' in text[:100] else None
+            delimiter = dialect.delimiter if dialect else ','
+            
+            f = StringIO(text)
+            return list(csv.reader(f, delimiter=delimiter))
     except: return []
 
 async def search_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Người dùng gõ "AST", bot sẽ tìm đúng "AST" và bỏ qua "AST_NN"
     user_input = str(update.message.text).strip().upper()
-    wait = await update.message.reply_text(f"🔍 Đang tìm chính xác mã: {user_input}...")
+    wait = await update.message.reply_text(f"🔍 Đang tìm mã: {user_input}...")
 
     buy_raw = await fetch_csv(BUY_URL)
     sell_raw = await fetch_csv(SELL_URL)
@@ -32,38 +36,35 @@ async def search_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     def filter_data(rows, symbol):
         results = []
         if not rows or len(rows) < 2: return []
-        
-        for r in rows[1:]: # Bỏ qua dòng tiêu đề
-            if len(r) < 4: continue 
-            
-            # Dựa theo dữ liệu bạn gửi:
-            # r[0] = Ticker (Mã)
-            # r[1] = Date/Time (Ngày)
-            # r[3] = Giá (Cột thứ 4 trong file của bạn)
-            
+        for r in rows[1:]:
+            if len(r) < 3: continue
+            # r[0] là Ticker, r[1] là Date/Time, r[3] là Giá (như bạn mô tả)
+            # Nếu dòng của bạn ngắn hơn, mình sẽ lấy r[-1] làm giá để an toàn
             db_ticker = str(r[0]).strip().upper()
-            
-            # SO KHỚP TUYỆT ĐỐI (Chỉ lấy AST, ko lấy AST_NN)
             if db_ticker == symbol:
-                date_val = r[1]
-                price_val = r[3] # Lấy cột thứ 4 là cột Giá
-                results.append(f"🔹 {db_ticker} | {date_val} | Giá: {price_val}")
-        
+                p = r[3] if len(r) > 3 else r[-1]
+                results.append(f"🔹 {db_ticker} | {r[1]} | Giá: {p}")
         return results[-10:]
 
     buy_list = filter_data(buy_raw, user_input)
     sell_list = filter_data(sell_raw, user_input)
 
     if not buy_list and not sell_list:
-        # Nếu ko thấy, liệt kê các mã đang có trong Sheet để Alex xem
-        all_codes = list(set([str(r[0]).strip() for r in buy_raw[1:10] if len(r) > 0]))
-        await wait.edit_text(f"❌ Không thấy mã khớp 100%: {user_input}\n\nMã bot thấy trong Sheet là: {', '.join(all_codes)}")
+        # --- BƯỚC QUAN TRỌNG: HIỆN 10 MÃ ĐẦU TIÊN ĐỂ KIỂM TRA ---
+        all_codes = []
+        if buy_raw and len(buy_raw) > 1:
+            all_codes = list(set([str(r[0]).strip() for r in buy_raw[1:15]]))
+        
+        await wait.edit_text(
+            f"❌ Không thấy mã: {user_input}\n\n"
+            f"📍 Danh sách 10 mã Bot ĐANG THẤY trong Sheets:\n`{', '.join(all_codes)}`"
+        )
         return
 
     msg = f"📌 **KẾT QUẢ: {user_input}**\n\n🟩 **MUA:**\n" + "\n".join(buy_list) + "\n\n🟥 **BÁN:**\n" + "\n".join(sell_list)
     await wait.edit_text(msg, parse_mode="Markdown")
 
-# --- SERVER ---
+# --- SERVER & RUN ---
 server = Flask(__name__)
 @server.route("/")
 def home(): return "OK"
