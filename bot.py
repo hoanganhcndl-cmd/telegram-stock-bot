@@ -49,11 +49,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         date = r[1]
                         price = r[3]
                         results.append(f"🔹 {row_ticker} | {date} | Giá: {price}")
-        if len(results) >= 10:
+                if len(results) >= 10:
                 break
                 
         return results
-
     buy_list = find_ticker(buy_data, user_input)
     sell_list = find_ticker(sell_data, user_input)
 
