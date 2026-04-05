@@ -37,7 +37,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     def find_ticker(rows, ticker):
         results = []
         if not rows: return []
-        for r in rows:
+        for r in reversed(rows):
             if len(r) >= 4:
                 row_ticker = str(r[0]).strip().upper()
                 
@@ -49,7 +49,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         date = r[1]
                         price = r[3]
                         results.append(f"🔹 {row_ticker} | {date} | Giá: {price}")
-        return results[::-1][:10]
+        if len(results) >= 10:
+                break
+                
+        return results
 
     buy_list = find_ticker(buy_data, user_input)
     sell_list = find_ticker(sell_data, user_input)
