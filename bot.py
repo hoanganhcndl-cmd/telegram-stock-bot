@@ -17,12 +17,14 @@ async def fetch_csv(url):
             if content.startswith(codecs.BOM_UTF8):
                 content = content[len(codecs.BOM_UTF8):]
             f = StringIO(content.decode('utf-8'))
-            return list(csv.reader(f)) # Dùng reader thường để lấy theo chỉ số cột (0, 1, 2)
+            # Dùng reader thường để lấy dữ liệu theo vị trí cột 0, 1, 2, 3...
+            return list(csv.reader(f)) 
     except: return []
 
 async def search_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Người dùng gõ "AST", bot sẽ tìm đúng "AST" và bỏ qua "AST_NN"
     user_input = str(update.message.text).strip().upper()
-    wait = await update.message.reply_text(f"🔍 Đang tìm mã: {user_input}...")
+    wait = await update.message.reply_text(f"🔍 Đang tìm chính xác mã: {user_input}...")
 
     buy_raw = await fetch_csv(BUY_URL)
     sell_raw = await fetch_csv(SELL_URL)
@@ -30,28 +32,38 @@ async def search_ticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     def filter_data(rows, symbol):
         results = []
         if not rows or len(rows) < 2: return []
-        # Bỏ qua hàng tiêu đề (rows[0]), duyệt từ hàng 1
-        for r in rows[1:]:
-            if len(r) < 3: continue
-            # r[0] là cột Ticker, r[1] là Date/Time, r[2] là Giá
+        
+        for r in rows[1:]: # Bỏ qua dòng tiêu đề
+            if len(r) < 4: continue 
+            
+            # Dựa theo dữ liệu bạn gửi:
+            # r[0] = Ticker (Mã)
+            # r[1] = Date/Time (Ngày)
+            # r[3] = Giá (Cột thứ 4 trong file của bạn)
+            
             db_ticker = str(r[0]).strip().upper()
+            
+            # SO KHỚP TUYỆT ĐỐI (Chỉ lấy AST, ko lấy AST_NN)
             if db_ticker == symbol:
-                results.append(f"🔹 {db_ticker} | {r[1]} | Giá: {r[2]}")
+                date_val = r[1]
+                price_val = r[3] # Lấy cột thứ 4 là cột Giá
+                results.append(f"🔹 {db_ticker} | {date_val} | Giá: {price_val}")
+        
         return results[-10:]
 
     buy_list = filter_data(buy_raw, user_input)
     sell_list = filter_data(sell_raw, user_input)
 
     if not buy_list and not sell_list:
-        # Nếu vẫn không thấy, liệt kê 3 mã đầu tiên bot thấy trong sheet để kiểm tra
-        sample = [str(r[0]).strip() for r in buy_raw[1:4]] if len(buy_raw) > 1 else ["Trống"]
-        await wait.edit_text(f"❌ Không khớp mã: {user_input}\nMã trong Sheets bot thấy là: {', '.join(sample)}")
+        # Nếu ko thấy, liệt kê các mã đang có trong Sheet để Alex xem
+        all_codes = list(set([str(r[0]).strip() for r in buy_raw[1:10] if len(r) > 0]))
+        await wait.edit_text(f"❌ Không thấy mã khớp 100%: {user_input}\n\nMã bot thấy trong Sheet là: {', '.join(all_codes)}")
         return
 
     msg = f"📌 **KẾT QUẢ: {user_input}**\n\n🟩 **MUA:**\n" + "\n".join(buy_list) + "\n\n🟥 **BÁN:**\n" + "\n".join(sell_list)
     await wait.edit_text(msg, parse_mode="Markdown")
 
-# --- PHẦN SERVER GIỮ NGUYÊN ---
+# --- SERVER ---
 server = Flask(__name__)
 @server.route("/")
 def home(): return "OK"
