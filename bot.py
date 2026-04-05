@@ -6,6 +6,7 @@ from flask import Flask
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 import asyncio
+import threading
 
 # ===========================
 # CONFIG
@@ -27,6 +28,7 @@ def fetch_csv(url):
 
 buy_data = fetch_csv(BUY_URL)
 sell_data = fetch_csv(SELL_URL)
+print(f"🟢 Loaded {len(buy_data)} buy rows and {len(sell_data)} sell rows")
 
 # ===========================
 # TELEGRAM HANDLERS
@@ -64,28 +66,27 @@ def home():
 # ===========================
 # RUN TELEGRAM BOT ASYNC
 # ===========================
-async def main():
+async def run_telegram_bot():
     TOKEN = os.getenv("BOT_TOKEN")
     if not TOKEN:
-        print("Thiếu BOT_TOKEN")
+        print("❌ Thiếu BOT_TOKEN")
         return
+
+    print("🚀 Starting Telegram Bot...")
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_ticker))
-    print("🚀 Telegram Bot is running...")
-    # chạy async
+
     await app.initialize()
     await app.start()
     await app.updater.start_polling()
-    # giữ process live
-    await asyncio.Event().wait()
+    await asyncio.Event().wait()  # giữ bot chạy
 
 # ===========================
 # ENTRY POINT
 # ===========================
 if __name__ == "__main__":
-    import threading
     # chạy Flask server trong thread riêng
     threading.Thread(target=lambda: server.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000))), daemon=True).start()
-    # chạy bot trong async main thread
-    asyncio.run(main())
+    # chạy bot trong main async thread
+    asyncio.run(run_telegram_bot())
