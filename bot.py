@@ -9,7 +9,7 @@ import asyncio
 import threading
 
 # ===========================
-# CONFIG
+# CONFIG CSV
 # ===========================
 BUY_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR6Xwxi0HpFNQWZiXg72eJfa2b1kaU3r2Be7B1I_hjj42k0NkAKJe0W3vM56KewYW52bkUIFLsvbn66/pub?gid=0&single=true&output=csv"
 SELL_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR6Xwxi0HpFNQWZiXg72eJfa2b1kaU3r2Be7B1I_hjj42k0NkAKJe0W3vM56KewYW52bkUIFLsvbn66/pub?gid=968456620&single=true&output=csv"
@@ -67,7 +67,8 @@ def home():
 # RUN TELEGRAM BOT ASYNC
 # ===========================
 async def run_telegram_bot():
-    TOKEN = os.getenv("BOT_TOKEN")
+    # Token demo
+    TOKEN = os.getenv("BOT_TOKEN", "8746767158:AAGnKeB3S4zHZO0oZdEex8SLLX7JstDlSTs")
     if not TOKEN:
         print("❌ Thiếu BOT_TOKEN")
         return
@@ -87,6 +88,10 @@ async def run_telegram_bot():
 # ===========================
 if __name__ == "__main__":
     # chạy Flask server trong thread riêng
-    threading.Thread(target=lambda: server.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000))), daemon=True).start()
+    threading.Thread(
+        target=lambda: server.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000))),
+        daemon=True
+    ).start()
+
     # chạy bot trong main async thread
     asyncio.run(run_telegram_bot())
